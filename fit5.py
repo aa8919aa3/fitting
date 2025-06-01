@@ -1,47 +1,36 @@
-import pandas as pd
+import os
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.figure_factory as ff # Added import for plotly.figure_factory
+import pandas as pd
 from astropy.timeseries import LombScargle
-from astropy import units as u
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
 try:
     import lmfit
 except ImportError:
     print("lmfit library not found. Please install it: pip install lmfit")
     lmfit = None
-import os
-
-# --- Configuration ---
-FILE_PATH = 'Kay2.csv'
-# !!! IMPORTANT: Replace these with the actual column names from your CSV file !!!
-TIME_COLUMN = 'Time'  # Updated to match provided CSV
-VALUE_COLUMN = 'Ic' # Updated to match provided CSV
-ERROR_COLUMN = None    # Placeholder: e.g., 'Error', 'Uncertainty'. Set to None if not available.
-
-# Frequency grid parameters for Lomb-Scargle
-MIN_FREQUENCY_LS = None  # e.g., 0.1. If None, autopower will determine it.
-MAX_FREQUENCY_LS = 500000 # Example: Set a reasonable maximum frequency for LS.
-SAMPLES_PER_PEAK_LS = 10 # Higher values give finer frequency resolution for LS.
-
-# Significance level for FAP (Lomb-Scargle)
-FAP_LEVELS_LS = [0.1, 0.05, 0.01] # False Alarm Probability levels for LS.
-
-# Detrending configuration for Lomb-Scargle pre-processing
-DETREND_ORDER_LS = 1 # Order of polynomial to fit for detrending before LS. 1 for linear.
-
-PLOT_DIR = "Plot"
-os.makedirs(PLOT_DIR, exist_ok=True)
 
 def save_plotly_svg(fig, basename, dataid):
-    """
-    儲存 plotly 圖為 SVG，並於圖表加註 dataid。
-    """
-    # 在圖表右上角加註 dataid
-    fig.add_annotation(text=f"dataid: {dataid}", xref="paper", yref="paper", x=0.99, y=0.99, showarrow=False, font=dict(size=12, color="crimson"), align="right", xanchor="right", yanchor="top", bgcolor="rgba(255,255,255,0.7)")
-    svg_path = os.path.join(PLOT_DIR, f"{basename}.svg")
-    fig.write_image(svg_path, format="svg")
-    print(f"圖表已儲存: {svg_path}")
+    """Save plotly figure as SVG file"""
+    import os
+    plot_dir = "Plot"
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+    filename = f"{plot_dir}/{basename}.svg"
+    fig.write_image(filename, format="svg", width=1920, height=1080)
+    print(f"Plot saved: {filename}")
+
+# 請改用 fit5_main.py 作為主程式入口
+
+TIME_COLUMN = "Time"
+VALUE_COLUMN = "Ic"
+ERROR_COLUMN = None
+MIN_FREQUENCY_LS = 1e-3
+MAX_FREQUENCY_LS = 1e3
+SAMPLES_PER_PEAK_LS = 10
+DETREND_ORDER_LS = 1
+FAP_LEVELS_LS = [0.01, 0.001]  # False Alarm Probability levels
+FILE_PATH = "Kay2.csv"  # 預設檔案路徑
 
 def load_data(file_path, time_col, value_col, error_col=None):
     """
@@ -166,7 +155,7 @@ def plot_lomb_scargle_periodogram(ls_frequency, ls_power, best_frequency_ls, fap
                            x=0.5, y=0.5, showarrow=False)
     
     fig.update_layout(title_text=f"{title_prefix}: Lomb-Scargle Periodogram", title_x=0.5,
-                      xaxis_title=f"Frequency (cycles / time unit)",
+                      xaxis_title="Frequency (cycles / time unit)",
                       yaxis_title="Lomb-Scargle Power",
                       showlegend=True)
     # fig.show()
@@ -251,15 +240,15 @@ def plot_ls_fit_parameters_text(best_frequency_ls, best_period_ls, r_squared_ls,
     """
     fig = go.Figure()
     param_text = (
-        f"<b>Lomb-Scargle Fit Parameters:</b><br><br>"
+        "<b>Lomb-Scargle Fit Parameters:</b><br><br>"
         f"  Best Frequency: {best_frequency_ls:.4f}<br>"
         f"  Best Period: {best_period_ls:.6f}<br>"
         f"  R-squared: {r_squared_ls:.4f}<br>"
         f"  Amplitude (sinusoid): {ls_amplitude:.3e}<br>"
         f"  Phase (sinusoid, radians): {ls_phase_rad:.3f}<br>"
         f"  Offset (mean term): {ls_offset_val:.3e}<br><br>"
-        f"Note: Detecting quantitative phase shift<br>"
-        f"over time requires more advanced analysis."
+        "Note: Detecting quantitative phase shift<br>"
+        "over time requires more advanced analysis."
     )
     fig.add_annotation(text=param_text, xref="paper", yref="paper",
                        x=0.05, y=0.95, showarrow=False, align="left",
@@ -317,15 +306,15 @@ def plot_custom_model_fit_separate(times, original_data, lmfit_result, errors=No
         fig.add_trace(go.Scatter(x=t_ls_fit, y=y_ls_model_on_original_scale, mode='lines', name=ls_plot_label,
                                  line=dict(color='lightcoral', width=1.5, dash='dash')))
     param_text = (
-        f"<b>Lomb-Scargle Fit Parameters:</b><br><br>"
+        "<b>Lomb-Scargle Fit Parameters:</b><br><br>"
         f"  Best Frequency: {best_frequency_ls:.4f}<br>"
         f"  Best Period: {best_period_ls:.6f}<br>"
         f"  R-squared: {r_squared_ls:.4f}<br>"
         f"  Amplitude (sinusoid): {ls_amplitude:.3e}<br>"
         f"  Phase (sinusoid, radians): {ls_phase_rad:.3f}<br>"
         f"  Offset (mean term): {ls_offset_val:.3e}<br><br>"
-        f"Note: Detecting quantitative phase shift<br>"
-        f"over time requires more advanced analysis."
+        "Note: Detecting quantitative phase shift<br>"
+        "over time requires more advanced analysis."
     )
     fig.add_annotation(text=param_text, xref="paper", yref="paper",
                        xanchor="left", yanchor="top",   
@@ -565,7 +554,7 @@ def main():
     else:
         print("Failed to compute Lomb-Scargle periodogram.")
             
-    print(f"\n--- Lomb-Scargle Results ---")
+    print("\n--- Lomb-Scargle Results ---")
     if ls_frequency is not None and len(ls_frequency) > 0 :
       print(f"Highest LS peak power: {highest_ls_peak_power:.4f}")
     print(f"Best LS frequency: {best_frequency_ls:.6f} cycles / time unit")
@@ -657,8 +646,10 @@ def main():
     slope_init, intercept_init = np.polyfit(original_times, original_values, 1)
     residuals_for_amp_est = original_values - (slope_init * original_times + intercept_init)
     amp_init = np.std(residuals_for_amp_est) * np.sqrt(2) 
-    if amp_init == 0 : amp_init = np.std(original_values) * np.sqrt(2) 
-    if amp_init == 0 : amp_init = 1e-7 
+    if amp_init == 0:
+        amp_init = np.std(original_values) * np.sqrt(2)
+    if amp_init == 0:
+        amp_init = 1e-7 
 
     params.add('A', value=amp_init if amp_init > 0 else 1e-7, min=1e-9) 
     params.add('B', value=amp_init/2 if amp_init > 0 else 1e-7, min=1e-9) 
@@ -801,17 +792,27 @@ def analyze_file_and_get_results(file_path, param_bounds=None):
         if best_frequency_ls != 0:
             best_period_ls = 1.0 / best_frequency_ls
             ls_offset_fit = ls.offset()
-            params_ls_sinusoid = ls.model_parameters(best_frequency_ls)
-            ls_amplitude_fit = np.sqrt(params_ls_sinusoid[0]**2 + params_ls_sinusoid[1]**2)
-            ls_phase_fit_rad = np.arctan2(params_ls_sinusoid[1], params_ls_sinusoid[0])
+            try:
+                params_ls_sinusoid = ls.model_parameters(best_frequency_ls)
+                ls_amplitude_fit = np.sqrt(params_ls_sinusoid[0]**2 + params_ls_sinusoid[1]**2)
+                ls_phase_fit_rad = np.arctan2(params_ls_sinusoid[1], params_ls_sinusoid[0])
+            except np.linalg.LinAlgError:
+                print(f"Warning: Singular matrix encountered for frequency {best_frequency_ls}. Skipping parameter calculation.")
+                params_ls_sinusoid = None
+                ls_amplitude_fit = np.nan
+                ls_phase_fit_rad = np.nan
     y_ls_pred_on_original_scale_at_orig_times = np.full_like(original_values, np.nan)
-    if best_frequency_ls != 0 and not np.isinf(best_period_ls):
-        ls_model_pred_on_detrended_at_orig_times = ls.model(original_times, best_frequency_ls)
-        y_ls_pred_on_original_scale_at_orig_times = ls_model_pred_on_detrended_at_orig_times
-        if ls_detrend_coeffs is not None:
-            original_trend_at_orig_times = np.polyval(ls_detrend_coeffs, original_times)
-            y_ls_pred_on_original_scale_at_orig_times = original_trend_at_orig_times + ls_model_pred_on_detrended_at_orig_times
-        r_squared_ls = calculate_r_squared(original_values, y_ls_pred_on_original_scale_at_orig_times)
+    if best_frequency_ls != 0 and not np.isinf(best_period_ls) and params_ls_sinusoid is not None:
+        try:
+            ls_model_pred_on_detrended_at_orig_times = ls.model(original_times, best_frequency_ls)
+            y_ls_pred_on_original_scale_at_orig_times = ls_model_pred_on_detrended_at_orig_times
+            if ls_detrend_coeffs is not None:
+                original_trend_at_orig_times = np.polyval(ls_detrend_coeffs, original_times)
+                y_ls_pred_on_original_scale_at_orig_times = original_trend_at_orig_times + ls_model_pred_on_detrended_at_orig_times
+            r_squared_ls = calculate_r_squared(original_values, y_ls_pred_on_original_scale_at_orig_times)
+        except (np.linalg.LinAlgError, ValueError) as e:
+            print(f"Warning: Error in model calculation: {e}. Setting R² to NaN.")
+            r_squared_ls = np.nan
     result['best_frequency_ls'] = best_frequency_ls
     result['best_period_ls'] = best_period_ls
     result['r_squared_ls'] = r_squared_ls
@@ -825,8 +826,10 @@ def analyze_file_and_get_results(file_path, param_bounds=None):
         slope_init, intercept_init = np.polyfit(original_times, original_values, 1)
         residuals_for_amp_est = original_values - (slope_init * original_times + intercept_init)
         amp_init = np.std(residuals_for_amp_est) * np.sqrt(2)
-        if amp_init == 0: amp_init = np.std(original_values) * np.sqrt(2)
-        if amp_init == 0: amp_init = 1e-7
+        if amp_init == 0:
+            amp_init = np.std(original_values) * np.sqrt(2)
+        if amp_init == 0:
+            amp_init = 1e-7
         # range info
         x_min, x_max = np.min(original_times), np.max(original_times)
         y_min, y_max = np.min(original_values), np.max(original_values)
@@ -888,7 +891,7 @@ def analyze_file_and_get_results(file_path, param_bounds=None):
         fig_ls = go.Figure()
         fig_ls.add_trace(go.Scatter(x=ls_frequency, y=ls_power, mode='lines', name='LS Power', line=dict(color='cornflowerblue')))
         fig_ls.add_vline(x=best_frequency_ls, line_dash="dash", line_color="red", annotation_text=f'Best Freq: {best_frequency_ls:.4f}', annotation_position="top right")
-        fig_ls.update_layout(title_text=f"Lomb-Scargle Periodogram", title_x=0.5)
+        fig_ls.update_layout(title_text="Lomb-Scargle Periodogram", title_x=0.5, width=1920, height=1080)
         # 組合 info_text
         info_text_ls = f"R²={r_squared_ls:.4f}<br>Freq={best_frequency_ls:.4f}<br>Period={best_period_ls:.6f}<br>Amp={ls_amplitude_fit:.2e}<br>Phase={ls_phase_fit_rad:.2f}<br>Offset={ls_offset_fit:.2e}"
         add_fit_info_annotation(fig_ls, info_text_ls, pos=(0.01,0.99))
@@ -900,7 +903,7 @@ def analyze_file_and_get_results(file_path, param_bounds=None):
         plot_values_individual = np.concatenate((ls_input_values, ls_input_values, ls_input_values))
         fig_phase = go.Figure()
         fig_phase.add_trace(go.Scatter(x=plot_phase_individual, y=plot_values_individual, mode='markers', name='Data points', marker=dict(color='grey', size=3, opacity=0.7)))
-        fig_phase.update_layout(title_text=f"Phase-Folded Data", title_x=0.5)
+        fig_phase.update_layout(title_text="Phase-Folded Data", title_x=0.5, width=1920, height=1080)
         info_text_phase = f"R²={r_squared_ls:.4f}<br>Period={best_period_ls:.6f}"
         add_fit_info_annotation(fig_phase, info_text_phase, pos=(0.01,0.99))
         save_plotly_svg(fig_phase, f"{dataid}_phase_folded", dataid)
@@ -913,8 +916,10 @@ def analyze_file_and_get_results(file_path, param_bounds=None):
             slope_init, intercept_init = np.polyfit(original_times, original_values, 1)
             residuals_for_amp_est = original_values - (slope_init * original_times + intercept_init)
             amp_init = np.std(residuals_for_amp_est) * np.sqrt(2)
-            if amp_init == 0: amp_init = np.std(original_values) * np.sqrt(2)
-            if amp_init == 0: amp_init = 1e-7
+            if amp_init == 0:
+                amp_init = np.std(original_values) * np.sqrt(2)
+            if amp_init == 0:
+                amp_init = 1e-7
             params.add('A', value=amp_init if amp_init > 0 else 1e-7)
             params.add('B', value=amp_init/2 if amp_init > 0 else 1e-7)
             params.add('f', value=best_frequency_ls if best_frequency_ls > 1e-9 else 1.0)
@@ -929,7 +934,7 @@ def analyze_file_and_get_results(file_path, param_bounds=None):
             fig_custom = go.Figure()
             fig_custom.add_trace(go.Scatter(x=original_times, y=original_values, mode='markers', name='Data'))
             fig_custom.add_trace(go.Scatter(x=original_times, y=fit_y, mode='lines', name='Custom Fit'))
-            fig_custom.update_layout(title_text=f"Custom Model Fit", title_x=0.5)
+            fig_custom.update_layout(title_text="Custom Model Fit", title_x=0.5, width=1920, height=1080)
             # info_text for custom fit
             info_text_custom = f"R²={result['r_squared_custom']:.4f}<br>A={result['custom_A']:.2e} B={result['custom_B']:.2e}<br>f={result['custom_f']:.4f} d={result['custom_d']:.2f}<br>p={result['custom_p']:.2f} T={result['custom_T']:.3f}<br>r={result['custom_r']:.2e} r2={result['custom_r2']:.2e}<br>C={result['custom_C']:.2e}"
             add_fit_info_annotation(fig_custom, info_text_custom, pos=(0.01,0.99))
@@ -951,7 +956,7 @@ def analyze_file_and_get_results(file_path, param_bounds=None):
             fig_res = go.Figure()
             fig_res.add_trace(go.Scatter(x=original_times, y=residuals, mode='markers', name='Residuals'))
             fig_res.add_hline(y=0, line_dash="dash", line_color="black", line_width=0.8)
-            fig_res.update_layout(title_text="Residuals", title_x=0.5)
+            fig_res.update_layout(title_text="Residuals", title_x=0.5, width=1920, height=1080)
             info_text_res = f"R²={result['r_squared_custom']:.4f}<br>Std={np.std(residuals):.2e}"
             add_fit_info_annotation(fig_res, info_text_res, pos=(0.01,0.99))
             save_plotly_svg(fig_res, f"{dataid}_residuals", dataid)
