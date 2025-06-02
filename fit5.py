@@ -1,34 +1,36 @@
-import pandas as pd
+import os
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.figure_factory as ff # Added import for plotly.figure_factory
+import pandas as pd
 from astropy.timeseries import LombScargle
-from astropy import units as u
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
 try:
     import lmfit
 except ImportError:
     print("lmfit library not found. Please install it: pip install lmfit")
     lmfit = None
 
+def save_plotly_svg(fig, basename, dataid):
+    """Save plotly figure as SVG file"""
+    import os
+    plot_dir = "Plot"
+    if not os.path.exists(plot_dir):
+        os.makedirs(plot_dir)
+    filename = f"{plot_dir}/{basename}.svg"
+    fig.write_image(filename, format="svg", width=1920, height=1080)
+    print(f"Plot saved: {filename}")
 
-# --- Configuration ---
-FILE_PATH = '164_ic.csv'
-# !!! IMPORTANT: Replace these with the actual column names from your CSV file !!!
-TIME_COLUMN = 'Time'  # Updated to match provided CSV
-VALUE_COLUMN = 'Ic' # Updated to match provided CSV
-ERROR_COLUMN = None    # Placeholder: e.g., 'Error', 'Uncertainty'. Set to None if not available.
+# 請改用 fit5_main.py 作為主程式入口
 
-# Frequency grid parameters for Lomb-Scargle
-MIN_FREQUENCY_LS = None  # e.g., 0.1. If None, autopower will determine it.
-MAX_FREQUENCY_LS = 500000 # Example: Set a reasonable maximum frequency for LS.
-SAMPLES_PER_PEAK_LS = 10 # Higher values give finer frequency resolution for LS.
-
-# Significance level for FAP (Lomb-Scargle)
-FAP_LEVELS_LS = [0.1, 0.05, 0.01] # False Alarm Probability levels for LS.
-
-# Detrending configuration for Lomb-Scargle pre-processing
-DETREND_ORDER_LS = 1 # Order of polynomial to fit for detrending before LS. 1 for linear.
+TIME_COLUMN = "Time"
+VALUE_COLUMN = "Ic"
+ERROR_COLUMN = None
+MIN_FREQUENCY_LS = 1e-3
+MAX_FREQUENCY_LS = 1e3
+SAMPLES_PER_PEAK_LS = 10
+DETREND_ORDER_LS = 1
+FAP_LEVELS_LS = [0.01, 0.001]  # False Alarm Probability levels
+FILE_PATH = "Kay2.csv"  # 預設檔案路徑
 
 def load_data(file_path, time_col, value_col, error_col=None):
     """
@@ -153,10 +155,10 @@ def plot_lomb_scargle_periodogram(ls_frequency, ls_power, best_frequency_ls, fap
                            x=0.5, y=0.5, showarrow=False)
     
     fig.update_layout(title_text=f"{title_prefix}: Lomb-Scargle Periodogram", title_x=0.5,
-                      xaxis_title=f"Frequency (cycles / time unit)",
+                      xaxis_title="Frequency (cycles / time unit)",
                       yaxis_title="Lomb-Scargle Power",
                       showlegend=True)
-    fig.show()
+    # fig.show()
 
 def plot_data_with_ls_fit(original_times, original_values, original_errors, t_fit_ls, y_ls_fit_on_original_scale_for_plot, best_period_ls, r_squared_ls, value_column_name, title_prefix):
     """
@@ -181,7 +183,7 @@ def plot_data_with_ls_fit(original_times, original_values, original_errors, t_fi
                       xaxis_title="Time",
                       yaxis_title=value_column_name.capitalize(),
                       showlegend=True)
-    fig.show()
+    # fig.show()
 
 def plot_phase_folded_data(ls_input_times, ls_input_values_for_phase_plot, best_period_ls, ls_input_errors_for_phase_plot, value_column_name, title_prefix):
     """
@@ -230,7 +232,7 @@ def plot_phase_folded_data(ls_input_times, ls_input_values_for_phase_plot, best_
                            x=0.5, y=0.5, showarrow=False)
 
     fig.update_layout(title_text=f"{title_prefix}: Phase-Folded Data", title_x=0.5, showlegend=True)
-    fig.show()
+    # fig.show()
 
 def plot_ls_fit_parameters_text(best_frequency_ls, best_period_ls, r_squared_ls, ls_amplitude, ls_phase_rad, ls_offset_val, title_prefix):
     """
@@ -238,15 +240,15 @@ def plot_ls_fit_parameters_text(best_frequency_ls, best_period_ls, r_squared_ls,
     """
     fig = go.Figure()
     param_text = (
-        f"<b>Lomb-Scargle Fit Parameters:</b><br><br>"
+        "<b>Lomb-Scargle Fit Parameters:</b><br><br>"
         f"  Best Frequency: {best_frequency_ls:.4f}<br>"
         f"  Best Period: {best_period_ls:.6f}<br>"
         f"  R-squared: {r_squared_ls:.4f}<br>"
         f"  Amplitude (sinusoid): {ls_amplitude:.3e}<br>"
         f"  Phase (sinusoid, radians): {ls_phase_rad:.3f}<br>"
         f"  Offset (mean term): {ls_offset_val:.3e}<br><br>"
-        f"Note: Detecting quantitative phase shift<br>"
-        f"over time requires more advanced analysis."
+        "Note: Detecting quantitative phase shift<br>"
+        "over time requires more advanced analysis."
     )
     fig.add_annotation(text=param_text, xref="paper", yref="paper",
                        x=0.05, y=0.95, showarrow=False, align="left",
@@ -255,183 +257,28 @@ def plot_ls_fit_parameters_text(best_frequency_ls, best_period_ls, r_squared_ls,
     fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
     fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
     fig.update_layout(title_text=f"{title_prefix}: Lomb-Scargle Fit Parameters", title_x=0.5,)
-    fig.show()
+    # fig.show()
 
-def custom_model_func(x, A, f, d, p, T, r, C):
+def custom_model_func(x, A, B, f, d, p, T, r, r2, C):
     """
-    Simplified custom target function for lmfit.
-    y = A * sin(2*pi*f*(x-d) - p) + r*(x-d) + C
+    擴充版自訂模型：y = A*sin(2*pi*f*(x-d)-p) + B*cos(2*pi*f*(x-d)-p) + r*(x-d) + r2*(x-d)^2 + C
     """
     term1 = 2 * np.pi * f * (x - d) - p
-    periodic_part = A * np.sin(term1)
-    linear_part = r * (x - d) + C
-    result_y = periodic_part + linear_part
-
-    return result_y
-
-def create_parameter_boundaries_matrix(times, values, d_multiplier=100, c_multiplier=10):
-    """
-    Creates a parameter boundaries matrix where each element represents fitting in a range:
-    - d ranges from -d_multiplier*mean(x) to +d_multiplier*mean(x), divided into 200 intervals
-    - C ranges from -c_multiplier*mean(y) to +c_multiplier*mean(y), divided into 20 intervals
-    - Creates a matrix of size 200 x 20
-    - Each matrix element contains fit results for that range combination
-    
-    Returns:
-        d_ranges: list of d range tuples [(start, end), ...]
-        c_ranges: list of C range tuples [(start, end), ...]
-        fit_results_matrix: matrix of fit results
-        best_params: parameters of the best fit
-        best_d_idx: index of best d range
-        best_c_idx: index of best C range
-    """
-    if lmfit is None:
-        print("lmfit not available, skipping parameter boundaries matrix.")
-        return None, None, None, None, None, None
-        
-    mean_x = np.mean(times)
-    mean_y = np.mean(values)
-    
-    print(f"Mean of x (times): {mean_x:.6f}")
-    print(f"Mean of y (values): {mean_y:.6e}")
-    
-    # Create parameter ranges
-    # d: from -100*mean(x) to +100*mean(x), 200 intervals
-    d_min = -d_multiplier * mean_x
-    d_max = d_multiplier * mean_x
-    d_intervals = 200
-    d_step = (d_max - d_min) / d_intervals
-    
-    # C: from -10*mean(y) to +10*mean(y), 20 intervals  
-    c_min = -c_multiplier * mean_y
-    c_max = c_multiplier * mean_y
-    c_intervals = 20
-    c_step = (c_max - c_min) / c_intervals
-    
-    # Create range lists
-    d_ranges = [(d_min + i*d_step, d_min + (i+1)*d_step) for i in range(d_intervals)]
-    c_ranges = [(c_min + j*c_step, c_min + (j+1)*c_step) for j in range(c_intervals)]
-    
-    print(f"d parameter ranges: [{d_min:.6f}, {d_max:.6f}] in {d_intervals} intervals")
-    print(f"C parameter ranges: [{c_min:.6e}, {c_max:.6e}] in {c_intervals} intervals")
-    
-    # Initialize results matrix
-    fit_results_matrix = np.full((d_intervals, c_intervals), np.nan)
-    best_r_squared = -np.inf
-    best_params = None
-    best_d_idx = 0
-    best_c_idx = 0
-    
-    total_fits = d_intervals * c_intervals
-    completed_fits = 0
-    
-    print(f"Starting parameter matrix fitting with {total_fits} combinations...")
-    
-    for i, (d_start, d_end) in enumerate(d_ranges):
-        for j, (c_start, c_end) in enumerate(c_ranges):
-            try:
-                # Use middle point of each range for fitting
-                d_val = (d_start + d_end) / 2
-                c_val = (c_start + c_end) / 2
-                
-                # Create parameters for this combination
-                params = lmfit.Parameters()
-                
-                # Estimate amplitude from data
-                slope_init, intercept_init = np.polyfit(times, values, 1)
-                residuals_for_amp_est = values - (slope_init * times + intercept_init)
-                amp_init = np.std(residuals_for_amp_est) * np.sqrt(2)
-                if amp_init == 0:
-                    amp_init = np.std(values) * np.sqrt(2)
-                if amp_init == 0:
-                    amp_init = 1e-7
-                
-                # Add parameters with constrained d and C values for this iteration
-                params.add('A', value=amp_init, min=1e-9)
-                params.add('f', value=1.0, min=1e-9)
-                params.add('d', value=d_val, min=d_start, max=d_end)  # Constrained to range
-                params.add('p', value=0, min=-2*np.pi, max=2*np.pi)
-                params.add('T', value=0.5, min=0.1, max=0.9)
-                params.add('r', value=slope_init)
-                params.add('C', value=c_val, min=c_start, max=c_end)  # Constrained to range
-                
-                # Perform fit
-                custom_model = lmfit.Model(custom_model_func)
-                result = custom_model.fit(values, params, x=times, nan_policy='omit')
-                
-                # Calculate R-squared
-                r_squared = calculate_r_squared(values, result.best_fit)
-                fit_results_matrix[i, j] = r_squared
-                
-                # Track best fit
-                if r_squared > best_r_squared:
-                    best_r_squared = r_squared
-                    best_params = result.params.copy()
-                    best_d_idx = i
-                    best_c_idx = j
-                
-                completed_fits += 1
-                if completed_fits % 200 == 0:
-                    print(f"Completed {completed_fits}/{total_fits} fits...")
-                    
-            except Exception as e:
-                # If fit fails, leave as NaN
-                fit_results_matrix[i, j] = np.nan
-                completed_fits += 1
-    
-    print(f"Parameter matrix fitting completed!")
-    print(f"Best R-squared: {best_r_squared:.6f}")
-    print(f"Best d range: [{d_ranges[best_d_idx][0]:.6f}, {d_ranges[best_d_idx][1]:.6f}] (index {best_d_idx})")
-    print(f"Best C range: [{c_ranges[best_c_idx][0]:.6e}, {c_ranges[best_c_idx][1]:.6e}] (index {best_c_idx})")
-    
-    return d_ranges, c_ranges, fit_results_matrix, best_params, best_d_idx, best_c_idx
-
-def plot_parameter_matrix_heatmap(d_ranges, c_ranges, fit_results_matrix, best_d_idx, best_c_idx):
-    """
-    Plots the parameter boundaries matrix as a heatmap showing R-squared values.
-    """
-    # Create center values for display
-    d_centers = [(d_start + d_end) / 2 for d_start, d_end in d_ranges]
-    c_centers = [(c_start + c_end) / 2 for c_start, c_end in c_ranges]
-    
-    fig = go.Figure(data=go.Heatmap(
-        z=fit_results_matrix,
-        x=c_centers,
-        y=d_centers,
-        colorscale='Viridis',
-        colorbar=dict(title='R-squared'),
-        hoverongaps=False,
-        hovertemplate='d: %{y:.6f}<br>C: %{x:.6e}<br>R²: %{z:.6f}<extra></extra>'
-    ))
-    
-    # Mark the best combination
-    fig.add_scatter(
-        x=[c_centers[best_c_idx]], 
-        y=[d_centers[best_d_idx]], 
-        mode='markers',
-        marker=dict(color='red', size=10, symbol='x'),
-        name=f'Best Fit (R²={fit_results_matrix[best_d_idx, best_c_idx]:.6f})',
-        showlegend=True
-    )
-    
-    fig.update_layout(
-        title_text='Parameter Boundaries Matrix: R-squared vs d and C parameters',
-        title_x=0.5,
-        xaxis_title="C parameter range centers",
-        yaxis_title="d parameter range centers",
-        width=800,
-        height=600
-    )
-    fig.show()
+    periodic_part = A * np.sin(term1) + B * np.cos(term1)
+    linear_part = r * (x - d)
+    quad_part = r2 * (x - d)**2
+    return periodic_part + linear_part + quad_part + C
 
 # Adjust lmfit parameters and boundaries for better fit
 lmfit_params = lmfit.Parameters()
 lmfit_params.add('A', value=1e-6, min=1e-8, max=1e-4)
+lmfit_params.add('B', value=1e-6, min=1e-8, max=1e-4)
 lmfit_params.add('f', value=5e4, min=1e-2, max=1e6)
 lmfit_params.add('d', value=0, min=-0.5, max=0.5)
 lmfit_params.add('p', value=0, min=-np.pi, max=np.pi)
 lmfit_params.add('T', value=0.5, min=0.1, max=0.9)
 lmfit_params.add('r', value=0, min=-1e-4, max=1e-4)
+lmfit_params.add('r2', value=0, min=-1e-4, max=1e-4)
 lmfit_params.add('C', value=0, min=-1e-5, max=1e-5)
 
 def plot_custom_model_fit_separate(times, original_data, lmfit_result, errors=None, 
@@ -459,15 +306,15 @@ def plot_custom_model_fit_separate(times, original_data, lmfit_result, errors=No
         fig.add_trace(go.Scatter(x=t_ls_fit, y=y_ls_model_on_original_scale, mode='lines', name=ls_plot_label,
                                  line=dict(color='lightcoral', width=1.5, dash='dash')))
     param_text = (
-        f"<b>Lomb-Scargle Fit Parameters:</b><br><br>"
+        "<b>Lomb-Scargle Fit Parameters:</b><br><br>"
         f"  Best Frequency: {best_frequency_ls:.4f}<br>"
         f"  Best Period: {best_period_ls:.6f}<br>"
         f"  R-squared: {r_squared_ls:.4f}<br>"
         f"  Amplitude (sinusoid): {ls_amplitude:.3e}<br>"
         f"  Phase (sinusoid, radians): {ls_phase_rad:.3f}<br>"
         f"  Offset (mean term): {ls_offset_val:.3e}<br><br>"
-        f"Note: Detecting quantitative phase shift<br>"
-        f"over time requires more advanced analysis."
+        "Note: Detecting quantitative phase shift<br>"
+        "over time requires more advanced analysis."
     )
     fig.add_annotation(text=param_text, xref="paper", yref="paper",
                        xanchor="left", yanchor="top",   
@@ -485,11 +332,24 @@ def plot_custom_model_fit_separate(times, original_data, lmfit_result, errors=No
     fig.add_trace(go.Scatter(x=times_sorted, y=custom_fit_line, mode='lines', name=custom_plot_label,
                              line=dict(color='orangered', width=1.5)))
     
+    # 在圖表左上角加上模型表達式
+    model_expr = r"$y = A\sin(2\pi f(x-d)-p) + B\cos(2\pi f(x-d)-p) + r(x-d) + r_2(x-d)^2 + C$"
+    fig.add_annotation(
+        text=model_expr,
+        xref="paper", yref="paper",
+        x=0.01, y=0.85,
+        showarrow=False,
+        align="left",
+        xanchor="left", yanchor="top",
+        bgcolor="rgba(255,255,255,0.7)",
+        font=dict(size=15, color="darkblue")
+    )
+    
     fig.update_layout(title_text=f"Custom Model Fit: {title}", title_x=0.5,
                       xaxis_title="Time",
                       yaxis_title=value_column_name.capitalize(),
                       showlegend=True)
-    fig.show()
+    # fig.show()
 
 def plot_residuals_vs_time(times, residuals, label, integral, title="Residuals vs. Time"):
     """
@@ -507,7 +367,7 @@ def plot_residuals_vs_time(times, residuals, label, integral, title="Residuals v
                       xaxis_title="Time",
                       yaxis_title="Residual (Data - Model)",
                       showlegend=True)
-    fig.show()
+    # fig.show()
 
 def plot_combined_residuals_vs_time(times1, residuals1, label1, integral1, 
                                     times2, residuals2, label2, integral2, 
@@ -535,7 +395,7 @@ def plot_combined_residuals_vs_time(times1, residuals1, label1, integral1,
                       xaxis_title="Time",
                       yaxis_title="Residual (Data - Model)",
                       showlegend=True)
-    fig.show()
+    # fig.show()
 
 
 def plot_residuals_histogram(residuals_list, labels_list, title="Histogram of Residuals"):
@@ -571,7 +431,7 @@ def plot_residuals_histogram(residuals_list, labels_list, title="Histogram of Re
                       xaxis_title="Residual Value",
                       yaxis_title="Density",
                       showlegend=True)
-    fig.show()
+    # fig.show()
 
 def plot_correlation_heatmap(lmfit_result):
     """
@@ -627,7 +487,7 @@ def plot_correlation_heatmap(lmfit_result):
         xaxis_title="Parameter",
         yaxis_title="Parameter",
     )
-    fig.show()
+    # fig.show()
 
 
 def main():
@@ -694,7 +554,7 @@ def main():
     else:
         print("Failed to compute Lomb-Scargle periodogram.")
             
-    print(f"\n--- Lomb-Scargle Results ---")
+    print("\n--- Lomb-Scargle Results ---")
     if ls_frequency is not None and len(ls_frequency) > 0 :
       print(f"Highest LS peak power: {highest_ls_peak_power:.4f}")
     print(f"Best LS frequency: {best_frequency_ls:.6f} cycles / time unit")
@@ -786,15 +646,19 @@ def main():
     slope_init, intercept_init = np.polyfit(original_times, original_values, 1)
     residuals_for_amp_est = original_values - (slope_init * original_times + intercept_init)
     amp_init = np.std(residuals_for_amp_est) * np.sqrt(2) 
-    if amp_init == 0 : amp_init = np.std(original_values) * np.sqrt(2) 
-    if amp_init == 0 : amp_init = 1e-7 
+    if amp_init == 0:
+        amp_init = np.std(original_values) * np.sqrt(2)
+    if amp_init == 0:
+        amp_init = 1e-7 
 
     params.add('A', value=amp_init if amp_init > 0 else 1e-7, min=1e-9) 
+    params.add('B', value=amp_init/2 if amp_init > 0 else 1e-7, min=1e-9) 
     params.add('f', value=best_frequency_ls if best_frequency_ls > 1e-9 else 1.0, min=1e-9) 
     params.add('d', value=original_times.min()) 
     params.add('p', value=0, min=-2*np.pi, max=2*np.pi) 
     params.add('T', value=0.5, min=0.1, max=0.9)  
     params.add('r', value=slope_init) 
+    params.add('r2', value=0) 
     params.add('C', value = np.polyval([slope_init, intercept_init], params['d'].value))
 
     print("\nInitial parameters for custom fit:")
@@ -869,12 +733,373 @@ def main():
 
     print("\nAnalysis complete.")
 
-if __name__ == '__main__':
-    main()
+def analyze_file_and_get_results(file_path, param_bounds=None):
+    """
+    分析單一CSV檔案，回傳主要結果dict。
+    param_bounds: dict, 可選，指定自訂模型各參數的 (min, max) 邊界。
+    """
+    result = {
+        'file': file_path,
+        'best_frequency_ls': None,
+        'best_period_ls': None,
+        'r_squared_ls': None,
+        'ls_amplitude_fit': None,
+        'ls_phase_fit_rad': None,
+        'ls_offset_fit': None,
+        'r_squared_custom': None,
+        'custom_A': None,
+        'custom_B': None,
+        'custom_f': None,
+        'custom_d': None,
+        'custom_p': None,
+        'custom_T': None,
+        'custom_r': None,
+        'custom_r2': None,
+        'custom_C': None,
+        'fit_status': None,   # 新增 fit_status 欄位
+        'error_msg': None     # 新增 error_msg 欄位
+    }
+    original_times, original_values, original_errors = load_data(file_path, TIME_COLUMN, VALUE_COLUMN, ERROR_COLUMN)
+    if original_times is None or original_values is None:
+        result['fit_status'] = 'fail'
+        result['error_msg'] = 'data_load_fail'
+        return result
+    ls_input_times = original_times.copy()
+    ls_input_values = original_values.copy()
+    ls_input_errors = original_errors.copy() if original_errors is not None else None
+    ls_detrend_coeffs = None
+    if DETREND_ORDER_LS is not None:
+        ls_input_values, ls_detrend_coeffs = detrend_data(ls_input_times, ls_input_values, order=DETREND_ORDER_LS)
+    dy_ls = ls_input_errors if ls_input_errors is not None else None
+    ls = LombScargle(ls_input_times, ls_input_values, dy=dy_ls, fit_mean=True, center_data=True)
+    current_min_freq_ls = MIN_FREQUENCY_LS
+    if current_min_freq_ls is None and len(ls_input_times) > 1:
+        time_span_ls = ls_input_times.max() - ls_input_times.min()
+        if time_span_ls > 0:
+            current_min_freq_ls = 0.5 / time_span_ls
+    ls_frequency, ls_power = ls.autopower(minimum_frequency=current_min_freq_ls, 
+                                          maximum_frequency=MAX_FREQUENCY_LS,
+                                          samples_per_peak=SAMPLES_PER_PEAK_LS)
+    best_frequency_ls = 0
+    best_period_ls = float('inf')
+    ls_amplitude_fit = np.nan
+    ls_phase_fit_rad = np.nan
+    ls_offset_fit = np.nan
+    r_squared_ls = np.nan
+    if ls_frequency is not None and len(ls_frequency) > 0:
+        best_power_index_ls = np.argmax(ls_power)
+        best_frequency_ls = ls_frequency[best_power_index_ls]
+        if best_frequency_ls != 0:
+            best_period_ls = 1.0 / best_frequency_ls
+            ls_offset_fit = ls.offset()
+            try:
+                params_ls_sinusoid = ls.model_parameters(best_frequency_ls)
+                ls_amplitude_fit = np.sqrt(params_ls_sinusoid[0]**2 + params_ls_sinusoid[1]**2)
+                ls_phase_fit_rad = np.arctan2(params_ls_sinusoid[1], params_ls_sinusoid[0])
+            except np.linalg.LinAlgError:
+                print(f"Warning: Singular matrix encountered for frequency {best_frequency_ls}. Skipping parameter calculation.")
+                params_ls_sinusoid = None
+                ls_amplitude_fit = np.nan
+                ls_phase_fit_rad = np.nan
+    y_ls_pred_on_original_scale_at_orig_times = np.full_like(original_values, np.nan)
+    if best_frequency_ls != 0 and not np.isinf(best_period_ls) and params_ls_sinusoid is not None:
+        try:
+            ls_model_pred_on_detrended_at_orig_times = ls.model(original_times, best_frequency_ls)
+            y_ls_pred_on_original_scale_at_orig_times = ls_model_pred_on_detrended_at_orig_times
+            if ls_detrend_coeffs is not None:
+                original_trend_at_orig_times = np.polyval(ls_detrend_coeffs, original_times)
+                y_ls_pred_on_original_scale_at_orig_times = original_trend_at_orig_times + ls_model_pred_on_detrended_at_orig_times
+            r_squared_ls = calculate_r_squared(original_values, y_ls_pred_on_original_scale_at_orig_times)
+        except (np.linalg.LinAlgError, ValueError) as e:
+            print(f"Warning: Error in model calculation: {e}. Setting R² to NaN.")
+            r_squared_ls = np.nan
+    result['best_frequency_ls'] = best_frequency_ls
+    result['best_period_ls'] = best_period_ls
+    result['r_squared_ls'] = r_squared_ls
+    result['ls_amplitude_fit'] = ls_amplitude_fit
+    result['ls_phase_fit_rad'] = ls_phase_fit_rad
+    result['ls_offset_fit'] = ls_offset_fit
+    # custom model fit
+    if lmfit is not None and best_frequency_ls > 0:
+        custom_model = lmfit.Model(custom_model_func)
+        params = lmfit.Parameters()
+        slope_init, intercept_init = np.polyfit(original_times, original_values, 1)
+        residuals_for_amp_est = original_values - (slope_init * original_times + intercept_init)
+        amp_init = np.std(residuals_for_amp_est) * np.sqrt(2)
+        if amp_init == 0:
+            amp_init = np.std(original_values) * np.sqrt(2)
+        if amp_init == 0:
+            amp_init = 1e-7
+        # range info
+        x_min, x_max = np.min(original_times), np.max(original_times)
+        y_min, y_max = np.min(original_values), np.max(original_values)
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        # 預設邊界
+        default_bounds = {
+            'A': (1e-9, 1e2),
+            'B': (1e-9, 1e2),
+            'f': (1e-9, 1e7),
+            'd': (x_min-100*x_range, x_max+100*x_range),
+            'p': (-4*np.pi, 4*np.pi),
+            'T': (0.001, 0.999),
+            'r': (-100*y_range/x_range, 100*y_range/x_range),
+            'r2': (-100*y_range/(x_range**2+1e-12), 100*y_range/(x_range**2+1e-12)),
+            'C': (y_min-100*y_range, y_max+100*y_range)
+        }
+        bounds = default_bounds.copy()
+        if param_bounds is not None:
+            for k in param_bounds:
+                if k in bounds and param_bounds[k][0] is not None and param_bounds[k][1] is not None:
+                    bounds[k] = param_bounds[k]
+        # 參數初始化更合理
+        params.add('A', value=amp_init if amp_init > 0 else 1e-7, min=bounds['A'][0], max=bounds['A'][1])
+        params.add('B', value=amp_init/2 if amp_init > 0 else 1e-7, min=bounds['B'][0], max=bounds['B'][1])
+        params.add('f', value=best_frequency_ls if best_frequency_ls > 1e-9 else 1.0, min=bounds['f'][0], max=bounds['f'][1])
+        params.add('d', value=x_min, min=bounds['d'][0], max=bounds['d'][1])
+        params.add('p', value=0, min=bounds['p'][0], max=bounds['p'][1])
+        params.add('T', value=0.5, min=bounds['T'][0], max=bounds['T'][1])
+        params.add('r', value=slope_init, min=bounds['r'][0], max=bounds['r'][1])
+        # r2 初值設為二次多項式的二次項係數（若可行），否則 0
+        try:
+            quad_coeffs = np.polyfit(original_times, original_values, 2)
+            r2_init = quad_coeffs[0]
+        except Exception:
+            r2_init = 0
+        params.add('r2', value=r2_init, min=bounds['r2'][0], max=bounds['r2'][1])
+        params.add('C', value=np.polyval([slope_init, intercept_init], x_min), min=bounds['C'][0], max=bounds['C'][1])
+        fit_weights = None
+        times_for_fit = original_times
+        data_for_fit = original_values
+        try:
+            lmfit_result_obj = custom_model.fit(data_for_fit, params, x=times_for_fit, weights=fit_weights, nan_policy='omit')
+            r_squared_custom = calculate_r_squared(data_for_fit, lmfit_result_obj.best_fit)
+            result['r_squared_custom'] = r_squared_custom
+            for pname in ['A','B','f','d','p','T','r','r2','C']:
+                result['custom_'+pname] = lmfit_result_obj.params[pname].value
+            result['fit_status'] = 'success'
+            result['error_msg'] = ''
+        except Exception as e:
+            result['fit_status'] = 'fail'
+            result['error_msg'] = str(e)
+    else:
+        result['fit_status'] = 'fail'
+        result['error_msg'] = 'lmfit_not_available_or_invalid_ls_freq'
+    dataid = os.path.splitext(os.path.basename(file_path))[0]
+    # Lomb-Scargle periodogram 圖
+    if ls_frequency is not None and len(ls_frequency) > 0:
+        fig_ls = go.Figure()
+        fig_ls.add_trace(go.Scatter(x=ls_frequency, y=ls_power, mode='lines', name='LS Power', line=dict(color='cornflowerblue')))
+        fig_ls.add_vline(x=best_frequency_ls, line_dash="dash", line_color="red", annotation_text=f'Best Freq: {best_frequency_ls:.4f}', annotation_position="top right")
+        fig_ls.update_layout(title_text="Lomb-Scargle Periodogram", title_x=0.5, width=1920, height=1080)
+        # 組合 info_text
+        info_text_ls = f"R²={r_squared_ls:.4f}<br>Freq={best_frequency_ls:.4f}<br>Period={best_period_ls:.6f}<br>Amp={ls_amplitude_fit:.2e}<br>Phase={ls_phase_fit_rad:.2f}<br>Offset={ls_offset_fit:.2e}"
+        add_fit_info_annotation(fig_ls, info_text_ls, pos=(0.01,0.99))
+        save_plotly_svg(fig_ls, f"{dataid}_ls_periodogram", dataid)
+    # Phase-folded plot
+    if best_period_ls != 0 and not np.isinf(best_period_ls) and not np.isnan(best_period_ls) and len(ls_input_times) > 0:
+        phase_individual = (ls_input_times / best_period_ls) % 1.0
+        plot_phase_individual = np.concatenate((phase_individual - 1, phase_individual, phase_individual + 1))
+        plot_values_individual = np.concatenate((ls_input_values, ls_input_values, ls_input_values))
+        fig_phase = go.Figure()
+        fig_phase.add_trace(go.Scatter(x=plot_phase_individual, y=plot_values_individual, mode='markers', name='Data points', marker=dict(color='grey', size=3, opacity=0.7)))
+        fig_phase.update_layout(title_text="Phase-Folded Data", title_x=0.5, width=1920, height=1080)
+        info_text_phase = f"R²={r_squared_ls:.4f}<br>Period={best_period_ls:.6f}"
+        add_fit_info_annotation(fig_phase, info_text_phase, pos=(0.01,0.99))
+        save_plotly_svg(fig_phase, f"{dataid}_phase_folded", dataid)
+    # Custom fit & 殘差圖
+    if lmfit is not None and best_frequency_ls > 0 and result['fit_status'] == 'success':
+        try:
+            # custom fit 曲線
+            custom_model = lmfit.Model(custom_model_func)
+            params = lmfit.Parameters()
+            slope_init, intercept_init = np.polyfit(original_times, original_values, 1)
+            residuals_for_amp_est = original_values - (slope_init * original_times + intercept_init)
+            amp_init = np.std(residuals_for_amp_est) * np.sqrt(2)
+            if amp_init == 0:
+                amp_init = np.std(original_values) * np.sqrt(2)
+            if amp_init == 0:
+                amp_init = 1e-7
+            params.add('A', value=amp_init if amp_init > 0 else 1e-7)
+            params.add('B', value=amp_init/2 if amp_init > 0 else 1e-7)
+            params.add('f', value=best_frequency_ls if best_frequency_ls > 1e-9 else 1.0)
+            params.add('d', value=original_times.min())
+            params.add('p', value=0)
+            params.add('T', value=0.5)
+            params.add('r', value=slope_init)
+            params.add('r2', value=0)
+            params.add('C', value = np.polyval([slope_init, intercept_init], params['d'].value))
+            lmfit_result_obj = custom_model.fit(original_values, params, x=original_times, nan_policy='omit')
+            fit_y = lmfit_result_obj.model.eval(params=lmfit_result_obj.params, x=original_times)
+            fig_custom = go.Figure()
+            fig_custom.add_trace(go.Scatter(x=original_times, y=original_values, mode='markers', name='Data'))
+            fig_custom.add_trace(go.Scatter(x=original_times, y=fit_y, mode='lines', name='Custom Fit'))
+            fig_custom.update_layout(title_text="Custom Model Fit", title_x=0.5, width=1920, height=1080)
+            # info_text for custom fit
+            info_text_custom = f"R²={result['r_squared_custom']:.4f}<br>A={result['custom_A']:.2e} B={result['custom_B']:.2e}<br>f={result['custom_f']:.4f} d={result['custom_d']:.2f}<br>p={result['custom_p']:.2f} T={result['custom_T']:.3f}<br>r={result['custom_r']:.2e} r2={result['custom_r2']:.2e}<br>C={result['custom_C']:.2e}"
+            add_fit_info_annotation(fig_custom, info_text_custom, pos=(0.01,0.99))
+            # 在圖表左上角加上模型表達式
+            model_expr = r"$y = A\sin(2\pi f(x-d)-p) + B\cos(2\pi f(x-d)-p) + r(x-d) + r_2(x-d)^2 + C$"
+            fig_custom.add_annotation(
+                text=model_expr,
+                xref="paper", yref="paper",
+                x=0.01, y=0.85,
+                showarrow=False,
+                align="left",
+                xanchor="left", yanchor="top",
+                bgcolor="rgba(255,255,255,0.7)",
+                font=dict(size=15, color="darkblue")
+            )
+            save_plotly_svg(fig_custom, f"{dataid}_custom_fit", dataid)
+            # 殘差圖
+            residuals = original_values - fit_y
+            fig_res = go.Figure()
+            fig_res.add_trace(go.Scatter(x=original_times, y=residuals, mode='markers', name='Residuals'))
+            fig_res.add_hline(y=0, line_dash="dash", line_color="black", line_width=0.8)
+            fig_res.update_layout(title_text="Residuals", title_x=0.5, width=1920, height=1080)
+            info_text_res = f"R²={result['r_squared_custom']:.4f}<br>Std={np.std(residuals):.2e}"
+            add_fit_info_annotation(fig_res, info_text_res, pos=(0.01,0.99))
+            save_plotly_svg(fig_res, f"{dataid}_residuals", dataid)
+        except Exception as e:
+            print(f"[警告] {dataid} custom fit 畫圖失敗: {e}")
+    return result
 
 
+def batch_analyze_and_save(csv_list, output_csv, param_bounds=None):
+    """
+    批次分析多個CSV檔案，並將所有結果存到output_csv。
+    param_bounds: dict, 可選，指定自訂模型各參數的 (min, max) 邊界。
+    """
+    all_results = []
+    for csvfile in csv_list:
+        res = analyze_file_and_get_results(csvfile, param_bounds=param_bounds)
+        all_results.append(res)
+    df = pd.DataFrame(all_results)
+    df.to_csv(output_csv, index=False)
+    print(f"所有分析結果已儲存到 {output_csv}")
 
 
+def auto_batch_fit_until_r2(csv_list, output_csv, r2_target=0.95, max_iter=10):
+    """
+    多組邊界組合分次嘗試，直到全部 r_squared_custom > r2_target。
+    """
+    # 多組邊界設計（順序由窄到寬）
+    bound_matrix = [
+        # +-1倍範圍
+        {
+            'd': '1x', 'C': '1y', 'r': '1r', 'r2': '1r2'
+        },
+        # +-10倍範圍
+        {
+            'd': '10x', 'C': '10y', 'r': '10r', 'r2': '10r2'
+        },
+        # +-100倍範圍
+        {
+            'd': '100x', 'C': '100y', 'r': '100r', 'r2': '100r2'
+        },
+        # 極大範圍
+        {
+            'd': (None, None),
+            'C': (None, None),
+            'r': (None, None),
+            'r2': (None, None)
+        }
+    ]
+    for i, bound_case in enumerate(bound_matrix):
+        print(f"\n=== Auto batch fit: 邊界組合 {i+1}/{len(bound_matrix)} ===")
+        def make_bounds(file_path):
+            # 根據資料自動產生邊界
+            times, values, _ = load_data(file_path, TIME_COLUMN, VALUE_COLUMN, ERROR_COLUMN)
+            x_min, x_max = np.min(times), np.max(times)
+            y_min, y_max = np.min(values), np.max(values)
+            x_range = x_max - x_min
+            y_range = y_max - y_min
+            base = {
+                'd': (x_min-100*x_range, x_max+100*x_range),
+                'C': (y_min-100*y_range, y_max+100*y_range),
+                'r': (-100*y_range/x_range, 100*y_range/x_range),
+                'r2': (-100*y_range/(x_range**2+1e-12), 100*y_range/(x_range**2+1e-12))
+            }
+            if bound_case['d'] == '100x':
+                d = (x_min-100*x_range, x_max+100*x_range)
+            elif bound_case['d'] == '10x':
+                d = (x_min-10*x_range, x_max+10*x_range)
+            elif bound_case['d'] == '1x':
+                d = (x_min-x_range, x_max+x_range)
+            else:
+                d = base['d'] if bound_case['d'] is None else bound_case['d']
+            if bound_case['C'] == '100y':
+                C = (y_min-100*y_range, y_max+100*y_range)
+            elif bound_case['C'] == '10y':
+                C = (y_min-10*y_range, y_max+10*y_range)
+            elif bound_case['C'] == '1y':
+                C = (y_min-y_range, y_max+y_range)
+            else:
+                C = base['C'] if bound_case['C'] is None else bound_case['C']
+            if bound_case['r'] == '100r':
+                r = (-100*y_range/x_range, 100*y_range/x_range)
+            elif bound_case['r'] == '10r':
+                r = (-10*y_range/x_range, 10*y_range/x_range)
+            elif bound_case['r'] == '1r':
+                r = (-1*y_range/x_range, 1*y_range/x_range)
+            else:
+                r = base['r'] if bound_case['r'] is None else bound_case['r']
+            if bound_case['r2'] == '100r2':
+                r2 = (-100*y_range/(x_range**2+1e-12), 100*y_range/(x_range**2+1e-12))
+            elif bound_case['r2'] == '10r2':
+                r2 = (-10*y_range/(x_range**2+1e-12), 10*y_range/(x_range**2+1e-12))
+            elif bound_case['r2'] == '1r2':
+                r2 = (-1*y_range/(x_range**2+1e-12), 1*y_range/(x_range**2+1e-12))
+            else:
+                r2 = base['r2'] if bound_case['r2'] is None else bound_case['r2']
+            return {'d': d, 'C': C, 'r': r, 'r2': r2}
+        # 針對每個檔案都產生對應邊界
+        param_bounds_dict = {}
+        for f in csv_list:
+            param_bounds_dict[f] = make_bounds(f)
+        def analyze_with_case(file_path):
+            return analyze_file_and_get_results(file_path, param_bounds=param_bounds_dict[file_path])
+        all_results = [analyze_with_case(f) for f in csv_list]
+        df = pd.DataFrame(all_results)
+        df.to_csv(output_csv, index=False)
+        print(f"所有分析結果已儲存到 {output_csv}")
+        if df['r_squared_custom'].dropna().ge(r2_target).all():
+            print(f"所有檔案 r_squared_custom >= {r2_target}，自動化結束。")
+            return
+        print("部分檔案 r_squared_custom 未達標，嘗試下一組邊界。")
+    print("所有邊界組合皆嘗試完畢，仍有部分檔案未達標。")
+
+def add_fit_info_annotation(fig, info_text, pos=(0.01, 0.99)):
+    """
+    在 plotly 圖表指定位置加上 info_text 註記。
+    pos: (x, y) 為 (0~1, 0~1) 的 paper 座標。
+    """
+    fig.add_annotation(
+        text=info_text,
+        xref="paper", yref="paper",
+        x=pos[0], y=pos[1],
+        showarrow=False,
+        align="left",
+        xanchor="left", yanchor="top",
+        bgcolor="rgba(255,255,200,0.85)",
+        bordercolor="black", borderwidth=1,
+        font=dict(size=13, color="black")
+    )
+
+if __name__ == "__main__":
+    import glob
+    # 自動搜尋所有 *_ic.csv 檔案
+    csv_list = sorted(glob.glob("*_ic.csv"))
+    if not csv_list:
+        print("找不到 *_ic.csv 檔案，請確認資料檔案存在於工作目錄。")
+    else:
+        print(f"將分析以下檔案：{csv_list}")
+        # 自動化批次分析直到 r2 > 0.95 或所有組合皆失敗
+        auto_batch_fit_until_r2(csv_list, "all_results.csv", r2_target=0.95)
+        # 讀取結果並顯示部分內容
+        df = pd.read_csv("all_results.csv")
+        print("\n分析結果摘要：")
+        print(df[[c for c in df.columns if c.startswith('file') or c.startswith('r_squared') or c.startswith('fit_status') or c.startswith('error_msg')]].head())
 
 
 
