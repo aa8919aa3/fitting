@@ -13,7 +13,7 @@ except ImportError:
 
 
 # --- Configuration ---
-FILE_PATH = 'Kay2.csv'
+FILE_PATH = '164_ic.csv'
 # !!! IMPORTANT: Replace these with the actual column names from your CSV file !!!
 TIME_COLUMN = 'Time'  # Updated to match provided CSV
 VALUE_COLUMN = 'Ic' # Updated to match provided CSV
@@ -268,6 +268,161 @@ def custom_model_func(x, A, f, d, p, T, r, C):
     result_y = periodic_part + linear_part
 
     return result_y
+
+def create_parameter_boundaries_matrix(times, values, d_multiplier=100, c_multiplier=10):
+    """
+    Creates a parameter boundaries matrix where each element represents fitting in a range:
+    - d ranges from -d_multiplier*mean(x) to +d_multiplier*mean(x), divided into 200 intervals
+    - C ranges from -c_multiplier*mean(y) to +c_multiplier*mean(y), divided into 20 intervals
+    - Creates a matrix of size 200 x 20
+    - Each matrix element contains fit results for that range combination
+    
+    Returns:
+        d_ranges: list of d range tuples [(start, end), ...]
+        c_ranges: list of C range tuples [(start, end), ...]
+        fit_results_matrix: matrix of fit results
+        best_params: parameters of the best fit
+        best_d_idx: index of best d range
+        best_c_idx: index of best C range
+    """
+    if lmfit is None:
+        print("lmfit not available, skipping parameter boundaries matrix.")
+        return None, None, None, None, None, None
+        
+    mean_x = np.mean(times)
+    mean_y = np.mean(values)
+    
+    print(f"Mean of x (times): {mean_x:.6f}")
+    print(f"Mean of y (values): {mean_y:.6e}")
+    
+    # Create parameter ranges
+    # d: from -100*mean(x) to +100*mean(x), 200 intervals
+    d_min = -d_multiplier * mean_x
+    d_max = d_multiplier * mean_x
+    d_intervals = 200
+    d_step = (d_max - d_min) / d_intervals
+    
+    # C: from -10*mean(y) to +10*mean(y), 20 intervals  
+    c_min = -c_multiplier * mean_y
+    c_max = c_multiplier * mean_y
+    c_intervals = 20
+    c_step = (c_max - c_min) / c_intervals
+    
+    # Create range lists
+    d_ranges = [(d_min + i*d_step, d_min + (i+1)*d_step) for i in range(d_intervals)]
+    c_ranges = [(c_min + j*c_step, c_min + (j+1)*c_step) for j in range(c_intervals)]
+    
+    print(f"d parameter ranges: [{d_min:.6f}, {d_max:.6f}] in {d_intervals} intervals")
+    print(f"C parameter ranges: [{c_min:.6e}, {c_max:.6e}] in {c_intervals} intervals")
+    
+    # Initialize results matrix
+    fit_results_matrix = np.full((d_intervals, c_intervals), np.nan)
+    best_r_squared = -np.inf
+    best_params = None
+    best_d_idx = 0
+    best_c_idx = 0
+    
+    total_fits = d_intervals * c_intervals
+    completed_fits = 0
+    
+    print(f"Starting parameter matrix fitting with {total_fits} combinations...")
+    
+    for i, (d_start, d_end) in enumerate(d_ranges):
+        for j, (c_start, c_end) in enumerate(c_ranges):
+            try:
+                # Use middle point of each range for fitting
+                d_val = (d_start + d_end) / 2
+                c_val = (c_start + c_end) / 2
+                
+                # Create parameters for this combination
+                params = lmfit.Parameters()
+                
+                # Estimate amplitude from data
+                slope_init, intercept_init = np.polyfit(times, values, 1)
+                residuals_for_amp_est = values - (slope_init * times + intercept_init)
+                amp_init = np.std(residuals_for_amp_est) * np.sqrt(2)
+                if amp_init == 0:
+                    amp_init = np.std(values) * np.sqrt(2)
+                if amp_init == 0:
+                    amp_init = 1e-7
+                
+                # Add parameters with constrained d and C values for this iteration
+                params.add('A', value=amp_init, min=1e-9)
+                params.add('f', value=1.0, min=1e-9)
+                params.add('d', value=d_val, min=d_start, max=d_end)  # Constrained to range
+                params.add('p', value=0, min=-2*np.pi, max=2*np.pi)
+                params.add('T', value=0.5, min=0.1, max=0.9)
+                params.add('r', value=slope_init)
+                params.add('C', value=c_val, min=c_start, max=c_end)  # Constrained to range
+                
+                # Perform fit
+                custom_model = lmfit.Model(custom_model_func)
+                result = custom_model.fit(values, params, x=times, nan_policy='omit')
+                
+                # Calculate R-squared
+                r_squared = calculate_r_squared(values, result.best_fit)
+                fit_results_matrix[i, j] = r_squared
+                
+                # Track best fit
+                if r_squared > best_r_squared:
+                    best_r_squared = r_squared
+                    best_params = result.params.copy()
+                    best_d_idx = i
+                    best_c_idx = j
+                
+                completed_fits += 1
+                if completed_fits % 200 == 0:
+                    print(f"Completed {completed_fits}/{total_fits} fits...")
+                    
+            except Exception as e:
+                # If fit fails, leave as NaN
+                fit_results_matrix[i, j] = np.nan
+                completed_fits += 1
+    
+    print(f"Parameter matrix fitting completed!")
+    print(f"Best R-squared: {best_r_squared:.6f}")
+    print(f"Best d range: [{d_ranges[best_d_idx][0]:.6f}, {d_ranges[best_d_idx][1]:.6f}] (index {best_d_idx})")
+    print(f"Best C range: [{c_ranges[best_c_idx][0]:.6e}, {c_ranges[best_c_idx][1]:.6e}] (index {best_c_idx})")
+    
+    return d_ranges, c_ranges, fit_results_matrix, best_params, best_d_idx, best_c_idx
+
+def plot_parameter_matrix_heatmap(d_ranges, c_ranges, fit_results_matrix, best_d_idx, best_c_idx):
+    """
+    Plots the parameter boundaries matrix as a heatmap showing R-squared values.
+    """
+    # Create center values for display
+    d_centers = [(d_start + d_end) / 2 for d_start, d_end in d_ranges]
+    c_centers = [(c_start + c_end) / 2 for c_start, c_end in c_ranges]
+    
+    fig = go.Figure(data=go.Heatmap(
+        z=fit_results_matrix,
+        x=c_centers,
+        y=d_centers,
+        colorscale='Viridis',
+        colorbar=dict(title='R-squared'),
+        hoverongaps=False,
+        hovertemplate='d: %{y:.6f}<br>C: %{x:.6e}<br>R²: %{z:.6f}<extra></extra>'
+    ))
+    
+    # Mark the best combination
+    fig.add_scatter(
+        x=[c_centers[best_c_idx]], 
+        y=[d_centers[best_d_idx]], 
+        mode='markers',
+        marker=dict(color='red', size=10, symbol='x'),
+        name=f'Best Fit (R²={fit_results_matrix[best_d_idx, best_c_idx]:.6f})',
+        showlegend=True
+    )
+    
+    fig.update_layout(
+        title_text='Parameter Boundaries Matrix: R-squared vs d and C parameters',
+        title_x=0.5,
+        xaxis_title="C parameter range centers",
+        yaxis_title="d parameter range centers",
+        width=800,
+        height=600
+    )
+    fig.show()
 
 # Adjust lmfit parameters and boundaries for better fit
 lmfit_params = lmfit.Parameters()
@@ -716,6 +871,9 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+
 
 
 
